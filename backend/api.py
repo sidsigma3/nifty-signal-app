@@ -14,12 +14,21 @@ import pandas as pd
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from backend.auto_trader import get_auto_trader
 from backend.feature_engineering import FEATURE_COLUMNS, build_features
 from backend.intraday_aggregator import inject_today_bar
 from backend.llm_explainer import explain_signal
+from backend.portfolio_backtest import (
+    BacktestConfig,
+    compute_stats,
+    load_all_stocks,
+    run_portfolio_backtest,
+    scan_breakouts,
+)
 from backend.replay_engine import get_replay
 from backend.signal_engine import SignalEngine, get_engine
 from backend.upstox_feed import UpstoxFeed
@@ -60,11 +69,16 @@ app = FastAPI(title="Nifty Signal API", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Serve built frontend (for Cloud Shell / production)
+FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
+if FRONTEND_DIST.exists():
+    app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="static-assets")
 
 
 class PredictRequest(BaseModel):
@@ -253,3 +267,101 @@ def order_place(body: OrderBody):
         "reason": res.reason,
         "order_id": res.order_id,
     }
+
+
+# ---------- 52-week breakout backtest + scanner ----------
+
+
+class BacktestBody(BaseModel):
+    initial_capital: float = 500000
+    risk_per_trade_pct: float = 0.02
+    sl_pct: float = 0.05
+    rr_t1: float = 2.0
+    rr_t2: float = 3.0
+    max_hold_days: int = 60
+    book_pct_t1: float = 0.50
+    sl_to_breakeven: bool = True
+    max_open_positions: int = 5
+    max_per_sector: int = 2
+    cooldown_days: int = 10
+    max_sl_pct: float = 0.08
+    min_rsi: float = 0.0
+    regime_filter: bool = False
+    min_volume_ratio: float = 0.0
+    avoid_months: str = ""
+    max_dist_above_52w: float = 0.0
+
+
+@app.post("/backtest/run")
+async def backtest_run(body: BacktestBody):
+    """Run portfolio-level 52-week breakout backtest across all stocks."""
+    import asyncio
+
+    cfg = BacktestConfig(
+        initial_capital=body.initial_capital,
+        risk_per_trade_pct=body.risk_per_trade_pct,
+        sl_pct=body.sl_pct,
+        rr_t1=body.rr_t1,
+        rr_t2=body.rr_t2,
+        max_hold_days=body.max_hold_days,
+        book_pct_t1=body.book_pct_t1,
+        sl_to_breakeven=body.sl_to_breakeven,
+        max_open_positions=body.max_open_positions,
+        max_per_sector=body.max_per_sector,
+        cooldown_days=body.cooldown_days,
+        max_sl_pct=body.max_sl_pct,
+        min_rsi=body.min_rsi,
+        regime_filter=body.regime_filter,
+        min_volume_ratio=body.min_volume_ratio,
+        avoid_months=body.avoid_months,
+        max_dist_above_52w=body.max_dist_above_52w,
+    )
+
+    def _run():
+        stocks = load_all_stocks()
+        if not stocks:
+            return None, None, None, 0
+        trades, equity_curve = run_portfolio_backtest(stocks, cfg)
+        stats = compute_stats(trades, equity_curve, cfg)
+        return trades, equity_curve, stats, len(stocks)
+
+    trades, eq, stats, n_stocks = await asyncio.to_thread(_run)
+    if trades is None:
+        raise HTTPException(404, "No stock data found in data/stocks/. Run: python -m backend.fetch_stocks_noauth")
+
+    # Downsample equity curve for frontend (max 500 points)
+    eq_data = [{"date": e.date, "equity": e.equity, "positions": e.open_positions} for e in eq]
+    if len(eq_data) > 500:
+        step = len(eq_data) // 500
+        eq_data = eq_data[::step] + [eq_data[-1]]
+
+    return {
+        "stats": stats,
+        "equity_curve": eq_data,
+        "trades": [t.to_dict() for t in trades],
+        "stocks_loaded": n_stocks,
+    }
+
+
+@app.get("/backtest/scanner")
+async def backtest_scanner():
+    """Scan for current 52-week breakout candidates across all stocks."""
+    import asyncio
+
+    def _scan():
+        stocks = load_all_stocks()
+        return [s.to_dict() for s in scan_breakouts(stocks)]
+
+    signals = await asyncio.to_thread(_scan)
+    return {"signals": signals, "count": len(signals)}
+
+
+# ---------- SPA catch-all (must be LAST route) ----------
+
+@app.get("/{full_path:path}")
+async def serve_spa(full_path: str):
+    """Serve the React SPA for any non-API route."""
+    index = FRONTEND_DIST / "index.html"
+    if index.exists():
+        return FileResponse(index)
+    return {"error": "Frontend not built. Run: cd frontend && npm run build"}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-const API = '/api'
+const API = import.meta.env.DEV ? '/api' : ''
 
 export default function AutoTradePanel() {
   const [stats, setStats] = useState(null)

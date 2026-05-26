@@ -10,7 +10,8 @@ export default function ChartView() {
     let alive = true
     async function poll() {
       try {
-        const res = await fetch('/api/feed/latest')
+        const API = import.meta.env.DEV ? '/api' : ''
+        const res = await fetch(`${API}/feed/latest`)
         const data = await res.json()
         if (!alive) return
 

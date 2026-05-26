@@ -14,6 +14,11 @@ venv/
 models/*.pkl
 models/*.h5
 data/*.csv
+data/stocks/
+data/backtest_results.json
+
+# Training artifacts
+catboost_info/
 
 # Node
 node_modules/

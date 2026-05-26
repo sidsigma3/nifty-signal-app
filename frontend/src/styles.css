@@ -86,3 +86,24 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .auto-controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; font-size: 13px; color: #c9d1d9; }
 .auto-controls input[type="number"] { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; border-radius: 4px; padding: 4px 6px; }
 .auto-controls label { display: flex; align-items: center; gap: 4px; }
+
+/* Nav tabs */
+.nav-tabs { display: flex; gap: 4px; }
+.nav-tabs button { background: transparent; border: 1px solid #30363d; color: #8b949e; padding: 6px 14px; font-size: 13px; border-radius: 6px; cursor: pointer; transition: all 0.15s; }
+.nav-tabs button:hover { color: #e6edf3; border-color: #58a6ff; }
+.nav-tabs button.nav-active { background: #1f6feb; border-color: #1f6feb; color: #fff; font-weight: 600; }
+
+/* Backtest controls */
+.bt-controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-top: 14px; padding: 14px; background: #0d1117; border: 1px solid #30363d; border-radius: 8px; }
+.bt-controls label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; }
+.bt-controls input[type="number"] { background: #161b22; border: 1px solid #30363d; color: #e6edf3; border-radius: 4px; padding: 6px 8px; width: 85px; font-size: 13px; }
+.bt-controls input[type="number"]:focus { border-color: #58a6ff; outline: none; }
+.bt-controls button { align-self: flex-end; padding: 8px 20px; font-weight: 600; }
+
+.win { color: #3fb950; }
+.loss { color: #f85149; }
+
+/* Responsive: backtest stats row */
+@media (max-width: 900px) {
+  .stats-row { grid-template-columns: repeat(4, 1fr) !important; }
+}
